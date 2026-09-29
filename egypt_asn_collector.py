@@ -56,6 +56,7 @@ FortiGate side (CLI):
 import argparse
 import csv
 import ipaddress
+import json
 import sys
 import time
 from pathlib import Path
@@ -89,6 +90,42 @@ def http_get_json(url, params=None):
     return None
 
 
+def _parse_asn_list(raw):
+    """RIPEstat's country-asns `routed` field is inconsistent across
+    endpoints/params: sometimes a JSON list of ints, sometimes a list of
+    dicts, and often just a plain comma-separated string of ASN numbers
+    (e.g. "8452,5536,15475"). Handle all three defensively rather than
+    assuming a shape and crashing on real data."""
+    if raw is None:
+        return []
+
+    if isinstance(raw, str):
+        raw = raw.strip()
+        try:
+            parsed = json.loads(raw)
+            items = parsed if isinstance(parsed, list) else [parsed]
+        except (json.JSONDecodeError, TypeError):
+            items = [tok.strip() for tok in raw.split(",") if tok.strip()]
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        items = [raw]
+
+    out = []
+    for entry in items:
+        if isinstance(entry, dict):
+            asn_val = entry.get("asn") or entry.get("resource") or entry.get("id")
+            if asn_val is None:
+                continue
+            out.append((int(asn_val), entry.get("name", "")))
+        else:
+            try:
+                out.append((int(entry), ""))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
 def get_egyptian_asns():
     """Return list of (asn:int, name:str) for ASNs registered/routed under EG."""
     data = http_get_json(RIPESTAT_COUNTRY_ASNS, {"resource": "EG", "lod": 1})
@@ -99,14 +136,10 @@ def get_egyptian_asns():
     if not countries:
         sys.exit("RIPEstat returned no country data for EG.")
 
-    routed = countries[0].get("routed", [])
-    asns = []
-    for entry in routed:
-        # lod=1 gives dicts like {"asn": 8452, "name": "TE-AS ..."}
-        if isinstance(entry, dict):
-            asns.append((int(entry["asn"]), entry.get("name", "")))
-        else:
-            asns.append((int(entry), ""))
+    routed = countries[0].get("routed")
+    asns = _parse_asn_list(routed)
+    if not asns:
+        sys.exit(f"RIPEstat returned no parseable routed ASNs for EG (raw type: {type(routed).__name__}).")
     return asns
 
 
