@@ -57,6 +57,7 @@ import argparse
 import csv
 import ipaddress
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -91,16 +92,21 @@ def http_get_json(url, params=None):
 
 
 def _parse_asn_list(raw):
-    """RIPEstat's country-asns `routed` field is inconsistent across
-    endpoints/params: sometimes a JSON list of ints, sometimes a list of
-    dicts, and often just a plain comma-separated string of ASN numbers
-    (e.g. "8452,5536,15475"). Handle all three defensively rather than
-    assuming a shape and crashing on real data."""
+    """RIPEstat's country-asns `routed` field is inconsistent: sometimes a
+    JSON list, sometimes a plain comma-separated string, and — as observed
+    in production with lod=1 — a stringified Python set of AsnSingle(N)
+    objects, e.g. "{AsnSingle(36992), AsnSingle(2561), ...}". Handle all of
+    these rather than assuming one shape and crashing on real data."""
     if raw is None:
         return []
 
     if isinstance(raw, str):
         raw = raw.strip()
+        if "AsnSingle(" in raw:
+            # Stringified set of AsnSingle(N) objects — pull the numbers out
+            # directly rather than trying to parse the surrounding {...} as
+            # JSON or Python literal syntax (it's neither).
+            return [(int(n), "") for n in re.findall(r"AsnSingle\((\d+)\)", raw)]
         try:
             parsed = json.loads(raw)
             items = parsed if isinstance(parsed, list) else [parsed]
