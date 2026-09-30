@@ -215,7 +215,13 @@ def main():
     ap.add_argument("--v6-only", action="store_true", help="Skip IPv4 prefixes")
     ap.add_argument("--exclude-asn", default="", help="Comma-separated ASNs to skip (e.g. mobile CGNAT ranges you don't want)")
     ap.add_argument("--sleep", type=float, default=0.3, help="Seconds to sleep between per-ASN requests (be polite to RIPEstat)")
+    ap.add_argument("--debug-country-asns", action="store_true", help="Fetch the raw RIPEstat country-asns response, print it, and exit (no output files written)")
     args = ap.parse_args()
+
+    if args.debug_country_asns:
+        data = http_get_json(RIPESTAT_COUNTRY_ASNS, {"resource": "EG", "lod": 1})
+        print(json.dumps(data, indent=2)[:6000])
+        return
 
     exclude = {int(x) for x in args.exclude_asn.split(",") if x.strip()}
 
